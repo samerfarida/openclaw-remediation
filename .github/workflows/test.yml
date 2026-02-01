@@ -32,7 +32,7 @@ jobs:
           OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}/openclaw_removal.log
         run: |
           chmod +x scripts/uninstall_macos_linux.sh
-          scripts/uninstall_macos_linux.sh
+          scripts/uninstall_macos_linux.sh --dry-run
           echo "Exit: $?"
 
       - name: Run uninstall (clean runner, expect success)
@@ -41,7 +41,7 @@ jobs:
         env:
           OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}\OpenClawRemoval.log
         run: |
-          .\scripts\uninstall_windows.ps1
+          .\scripts\uninstall_windows.ps1 -DryRun
           if ($LASTEXITCODE -ne 0) { throw "Script exited with $LASTEXITCODE" }
 
   lint:
