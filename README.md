@@ -1,9 +1,7 @@
 # openclaw-remediation
 
-[![CI](https://github.com/YOUR_ORG/openclaw-remediation/actions/workflows/test.yml/badge.svg)](https://github.com/YOUR_ORG/openclaw-remediation/actions/workflows/test.yml)
+[![CI](https://github.com/samerfarida/openclaw-remediation/actions/workflows/test.yml/badge.svg)](https://github.com/samerfarida/openclaw-remediation/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
-> **Badge:** Replace `YOUR_ORG` in the CI badge URL above with your GitHub org or username so the badge reflects your repo.
 
 **Purpose-built detection, uninstall, and validation tooling for OpenClaw across macOS, Linux, and Windows.**
 
