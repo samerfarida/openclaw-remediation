@@ -14,7 +14,8 @@ done
 LOG_FILE="/var/log/openclaw_removal.log"
 [[ -n "${OPENCLAW_REMOVAL_LOG:-}" ]] && LOG_FILE="$OPENCLAW_REMOVAL_LOG"
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
-if ! : >> "$LOG_FILE" 2>/dev/null; then
+# Use subshell for writability test so redirect failure under set -e does not exit the script
+if ! ( : >> "$LOG_FILE" ) 2>/dev/null; then
   LOG_FILE="${HOME:-/tmp}/.openclaw_removal.log"
   mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 fi

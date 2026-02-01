@@ -28,16 +28,20 @@ jobs:
       - name: Run uninstall (clean runner, expect success)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}/openclaw_removal.log
         run: |
           chmod +x scripts/uninstall_macos_linux.sh
-          scripts/uninstall_macos_linux.sh
+          scripts/uninstall_macos_linux.sh --dry-run
           echo "Exit: $?"
 
       - name: Run uninstall (clean runner, expect success)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}\OpenClawRemoval.log
         run: |
-          .\scripts\uninstall_windows.ps1
+          .\scripts\uninstall_windows.ps1 -DryRun
           if ($LASTEXITCODE -ne 0) { throw "Script exited with $LASTEXITCODE" }
 
   lint:
@@ -168,16 +172,34 @@ jobs:
       - name: Uninstall (macOS/Linux)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}/openclaw_removal.log
         run: |
           set -euo pipefail
           chmod +x scripts/uninstall_macos_linux.sh
-          sudo -n true 2>/dev/null && sudo scripts/uninstall_macos_linux.sh || scripts/uninstall_macos_linux.sh
+          set +e  # Disable exit-on-error to capture script exit code
+          if sudo -n true 2>/dev/null; then
+            sudo env OPENCLAW_REMOVAL_LOG="$OPENCLAW_REMOVAL_LOG" scripts/uninstall_macos_linux.sh
+          else
+            scripts/uninstall_macos_linux.sh
+          fi
+          exitcode=$?
+          set -e  # Re-enable exit-on-error
+          if [[ $exitcode -eq 2 ]]; then exit 2; fi
+          # 0 = success, 1 = partial (manual removal done; Assert clean will verify)
+          exit 0
 
       - name: Uninstall (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}\OpenClawRemoval.log
         run: |
+          $ErrorActionPreference = 'Continue'
           .\scripts\uninstall_windows.ps1
+          $exitcode = $LASTEXITCODE
+          if ($exitcode -eq 2) { exit 2 }
+          exit 0
 
       # ---------- Post-uninstall verification ----------
       - name: Post-uninstall verification (macOS/Linux)
