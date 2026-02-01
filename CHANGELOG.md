@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- (Changes since last release go here.)
+- CI artifacts README and uninstall script log (`uninstall_script.log`) now uploaded with test evidence.
+### Changed
+- CI badge and docs: replaced YOUR_ORG with samerfarida; updated README badges.
 
 ## [1.0.0] - 2025-02-01
 
@@ -22,5 +24,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Docs**: README, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, LICENSE (MIT), CHANGELOG; SIEM and MDM guides in `docs/`.
 - **Issue/PR templates**, pre-commit config, Dependabot for Actions, release checksums workflow.
 
-[Unreleased]: https://github.com/YOUR_ORG/openclaw-remediation/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/YOUR_ORG/openclaw-remediation/releases/tag/v1.0.0
+[Unreleased]: https://github.com/samerfarida/openclaw-remediation/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/samerfarida/openclaw-remediation/releases/tag/v1.0.0
