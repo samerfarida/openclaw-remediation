@@ -28,6 +28,8 @@ jobs:
       - name: Run uninstall (clean runner, expect success)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}/openclaw_removal.log
         run: |
           chmod +x scripts/uninstall_macos_linux.sh
           scripts/uninstall_macos_linux.sh
@@ -36,6 +38,8 @@ jobs:
       - name: Run uninstall (clean runner, expect success)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}\OpenClawRemoval.log
         run: |
           .\scripts\uninstall_windows.ps1
           if ($LASTEXITCODE -ne 0) { throw "Script exited with $LASTEXITCODE" }
@@ -168,6 +172,8 @@ jobs:
       - name: Uninstall (macOS/Linux)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}/openclaw_removal.log
         run: |
           set -euo pipefail
           chmod +x scripts/uninstall_macos_linux.sh
@@ -176,6 +182,8 @@ jobs:
       - name: Uninstall (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}\OpenClawRemoval.log
         run: |
           .\scripts\uninstall_windows.ps1
 
