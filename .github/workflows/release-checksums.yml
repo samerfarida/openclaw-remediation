@@ -25,7 +25,7 @@ jobs:
         run: cat checksums.txt
 
       - name: Upload checksums
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: checksums-${{ github.ref_name }}
           path: checksums.txt
