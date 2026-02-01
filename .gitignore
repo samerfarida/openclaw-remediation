@@ -1,0 +1,12 @@
+# CI-generated evidence
+artifacts/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Local logs (scripts write to /var/log or ProgramData by default)
+*.log

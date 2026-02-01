@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: OpenClaw (upstream)
+    url: https://openclaw.ai/
+    about: OpenClaw install/uninstall docs and community

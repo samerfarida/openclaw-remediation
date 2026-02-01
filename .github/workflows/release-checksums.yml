@@ -1,0 +1,31 @@
+# On tag push (v*), compute SHA-256 of scripts and upload as release asset + checksums.txt
+name: Release checksums
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  checksums:
+    name: Checksums
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checksums
+        run: |
+          sha256sum scripts/uninstall_macos_linux.sh scripts/uninstall_windows.ps1 > checksums.txt
+
+      - name: Show checksums
+        run: cat checksums.txt
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums-${{ github.ref_name }}
+          path: checksums.txt

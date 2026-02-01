@@ -1,0 +1,267 @@
+name: openclaw-install-uninstall-test
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [ "main" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke (no install)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run uninstall (clean runner, expect success)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x scripts/uninstall_macos_linux.sh
+          scripts/uninstall_macos_linux.sh
+          echo "Exit: $?"
+
+      - name: Run uninstall (clean runner, expect success)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\scripts\uninstall_windows.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Script exited with $LASTEXITCODE" }
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: ShellCheck (shell scripts)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck scripts/uninstall_macos_linux.sh
+
+      - name: PSScriptAnalyzer (PowerShell)
+        run: |
+          pwsh -Command "Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop; Invoke-ScriptAnalyzer -Path scripts/ -Severity Error"
+
+  test:
+    name: Test (${{ matrix.os }})
+    needs: [lint, smoke]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------- Baseline snapshots ----------
+      - name: Baseline snapshot (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          echo "=== whoami ===" > artifacts/baseline.txt
+          whoami >> artifacts/baseline.txt
+          echo "=== uname -a ===" >> artifacts/baseline.txt
+          uname -a >> artifacts/baseline.txt
+          echo "=== home listing ===" >> artifacts/baseline.txt
+          ls -la "$HOME" >> artifacts/baseline.txt
+          echo "=== openclaw dirs pre ===" >> artifacts/baseline.txt
+          ls -la "$HOME"/.openclaw* 2>/dev/null >> artifacts/baseline.txt || true
+          echo "=== ps pre (filtered) ===" >> artifacts/baseline.txt
+          ps aux | grep -E -i "openclaw|molt|claw" >> artifacts/baseline.txt || true
+          if [ "$(uname -s)" = "Darwin" ]; then
+            echo "=== launch agents pre ===" >> artifacts/baseline.txt
+            ls -la "$HOME/Library/LaunchAgents" >> artifacts/baseline.txt || true
+            echo "=== launchctl list (filtered) ===" >> artifacts/baseline.txt
+            launchctl list | grep -E -i "openclaw|molt|claw" >> artifacts/baseline.txt || true
+          else
+            echo "=== systemd user units pre (best effort) ===" >> artifacts/baseline.txt
+            systemctl --user list-unit-files 2>> artifacts/baseline.txt | grep -E -i "openclaw|molt|claw" >> artifacts/baseline.txt || true
+          fi
+
+      - name: Baseline snapshot (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          "=== whoami ===" | Out-File artifacts\baseline.txt
+          whoami | Out-File artifacts\baseline.txt -Append
+          "=== openclaw dirs pre ===" | Out-File artifacts\baseline.txt -Append
+          Get-ChildItem -Force $env:USERPROFILE | Where-Object { $_.Name -like ".openclaw*" } | Format-List | Out-File artifacts\baseline.txt -Append
+          "=== scheduled tasks pre (filtered) ===" | Out-File artifacts\baseline.txt -Append
+          try { schtasks /Query /FO LIST /V | Select-String -Pattern "OpenClaw|molt|claw" | Out-File artifacts\baseline.txt -Append } catch {}
+          "=== processes pre (filtered) ===" | Out-File artifacts\baseline.txt -Append
+          Get-Process | Where-Object { $_.Name -match "openclaw|molt|claw" } | Format-Table | Out-File artifacts\baseline.txt -Append
+
+      # ---------- Install ----------
+      - name: Install (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # SECURITY: do not use secrets. CI runners are ephemeral.
+          curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard
+
+      - name: Install (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Official Windows installer; may prompt if non-interactive flags not supported upstream
+          try {
+            Invoke-Expression (Invoke-WebRequest -Uri "https://openclaw.ai/install.ps1" -UseBasicParsing).Content
+          } catch {
+            Write-Warning "Windows install failed or not available; uninstall step will still run (no install to remove)."
+          }
+
+      # ---------- Post-install snapshot ----------
+      - name: Post-install snapshot (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== openclaw dirs post ===" > artifacts/post_install.txt
+          ls -la "$HOME"/.openclaw* 2>/dev/null >> artifacts/post_install.txt || true
+          echo "=== ps post (filtered) ===" >> artifacts/post_install.txt
+          ps aux | grep -E -i "openclaw|molt|claw" >> artifacts/post_install.txt || true
+          if [ "$(uname -s)" = "Darwin" ]; then
+            echo "=== launch agents post ===" >> artifacts/post_install.txt
+            ls -la "$HOME/Library/LaunchAgents" >> artifacts/post_install.txt || true
+            echo "=== launchctl list (filtered) ===" >> artifacts/post_install.txt
+            launchctl list | grep -E -i "openclaw|molt|claw" >> artifacts/post_install.txt || true
+          else
+            echo "=== systemd user units post (best effort) ===" >> artifacts/post_install.txt
+            systemctl --user list-unit-files 2>> artifacts/post_install.txt | grep -E -i "openclaw|molt|claw" >> artifacts/post_install.txt || true
+            echo "=== unit files dir post ===" >> artifacts/post_install.txt
+            ls -la "$HOME/.config/systemd/user" 2>> artifacts/post_install.txt | grep -E -i "openclaw|molt|claw" >> artifacts/post_install.txt || true
+          fi
+
+      - name: Post-install snapshot (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "=== openclaw dirs post ===" | Out-File artifacts\post_install.txt
+          Get-ChildItem -Force $env:USERPROFILE | Where-Object { $_.Name -like ".openclaw*" } | Format-List | Out-File artifacts\post_install.txt -Append
+          "=== scheduled tasks post (filtered) ===" | Out-File artifacts\post_install.txt -Append
+          try { schtasks /Query /FO LIST /V | Select-String -Pattern "OpenClaw|molt|claw" | Out-File artifacts\post_install.txt -Append } catch {}
+          "=== processes post (filtered) ===" | Out-File artifacts\post_install.txt -Append
+          Get-Process | Where-Object { $_.Name -match "openclaw|molt|claw" } | Format-Table | Out-File artifacts\post_install.txt -Append
+
+      # ---------- Uninstall ----------
+      - name: Uninstall (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/uninstall_macos_linux.sh
+          sudo -n true 2>/dev/null && sudo scripts/uninstall_macos_linux.sh || scripts/uninstall_macos_linux.sh
+
+      - name: Uninstall (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\scripts\uninstall_windows.ps1
+
+      # ---------- Post-uninstall verification ----------
+      - name: Post-uninstall verification (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== openclaw dirs after uninstall ===" > artifacts/post_uninstall.txt
+          ls -la "$HOME"/.openclaw* 2>/dev/null >> artifacts/post_uninstall.txt || echo "none" >> artifacts/post_uninstall.txt
+          echo "=== ps after uninstall (filtered) ===" >> artifacts/post_uninstall.txt
+          ps aux | grep -E -i "openclaw|molt|claw" >> artifacts/post_uninstall.txt || echo "none" >> artifacts/post_uninstall.txt
+          if [ "$(uname -s)" = "Darwin" ]; then
+            echo "=== launch agents after uninstall (filtered) ===" >> artifacts/post_uninstall.txt
+            ls -la "$HOME/Library/LaunchAgents" 2>/dev/null | grep -E -i "openclaw|molt|claw" >> artifacts/post_uninstall.txt || echo "none" >> artifacts/post_uninstall.txt
+            echo "=== launchctl after uninstall (filtered) ===" >> artifacts/post_uninstall.txt
+            launchctl list | grep -E -i "openclaw|molt|claw" >> artifacts/post_uninstall.txt || echo "none" >> artifacts/post_uninstall.txt
+          else
+            echo "=== systemd user units after uninstall (best effort) ===" >> artifacts/post_uninstall.txt
+            systemctl --user list-unit-files 2>/dev/null | grep -E -i "openclaw|molt|claw" >> artifacts/post_uninstall.txt || echo "none" >> artifacts/post_uninstall.txt
+            echo "=== unit files dir after uninstall (filtered) ===" >> artifacts/post_uninstall.txt
+            ls -la "$HOME/.config/systemd/user" 2>/dev/null | grep -E -i "openclaw|molt|claw" >> artifacts/post_uninstall.txt || echo "none" >> artifacts/post_uninstall.txt
+          fi
+
+      - name: Post-uninstall verification (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "=== openclaw dirs after uninstall ===" | Out-File artifacts\post_uninstall.txt
+          $dirs = Get-ChildItem -Force $env:USERPROFILE | Where-Object { $_.Name -like ".openclaw*" }
+          if ($dirs) { $dirs | Format-List | Out-File artifacts\post_uninstall.txt -Append } else { "none" | Out-File artifacts\post_uninstall.txt -Append }
+          "=== scheduled tasks after uninstall (filtered) ===" | Out-File artifacts\post_uninstall.txt -Append
+          try {
+            $m = schtasks /Query /FO LIST /V | Select-String -Pattern "OpenClaw|molt|claw"
+            if ($m) { $m | Out-File artifacts\post_uninstall.txt -Append } else { "none" | Out-File artifacts\post_uninstall.txt -Append }
+          } catch { "query failed" | Out-File artifacts\post_uninstall.txt -Append }
+          "=== processes after uninstall (filtered) ===" | Out-File artifacts\post_uninstall.txt -Append
+          $p = Get-Process | Where-Object { $_.Name -match "openclaw|molt|claw" }
+          if ($p) { $p | Format-Table | Out-File artifacts\post_uninstall.txt -Append } else { "none" | Out-File artifacts\post_uninstall.txt -Append }
+
+      # ---------- Assert clean (fail if artifacts remain) ----------
+      - name: Assert clean (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d "$HOME/.openclaw" ] || compgen -G "$HOME/.openclaw-*" >/dev/null 2>&1; then
+            echo "FAIL: OpenClaw state dirs still present"
+            ls -la "$HOME"/.openclaw* 2>/dev/null || true
+            exit 1
+          fi
+          if [ "$(uname -s)" = "Darwin" ]; then
+            if launchctl list 2>/dev/null | grep -qE -i "openclaw|molt|claw"; then
+              echo "FAIL: launchd still has OpenClaw entries"
+              launchctl list | grep -E -i "openclaw|molt|claw" || true
+              exit 1
+            fi
+          else
+            if systemctl --user list-unit-files 2>/dev/null | grep -qE -i "openclaw|molt|claw"; then
+              echo "FAIL: systemd user units still have OpenClaw"
+              systemctl --user list-unit-files | grep -E -i "openclaw|molt|claw" || true
+              exit 1
+            fi
+          fi
+          echo "PASS: endpoint clean"
+
+      - name: Assert clean (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dirs = Get-ChildItem -Force $env:USERPROFILE -Filter ".openclaw*" -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer }
+          if ($dirs) {
+            Write-Error "FAIL: OpenClaw state dirs still present: $($dirs.FullName -join ', ')"
+            exit 1
+          }
+          $tasks = schtasks /Query /FO LIST /V 2>$null | Select-String -Pattern "OpenClaw|molt|claw"
+          if ($tasks) {
+            Write-Error "FAIL: Scheduled tasks still reference OpenClaw"
+            $tasks
+            exit 1
+          }
+          Write-Host "PASS: endpoint clean"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-${{ runner.os }}
+          path: artifacts/
