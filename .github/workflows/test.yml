@@ -177,7 +177,15 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/uninstall_macos_linux.sh
-          sudo -n true 2>/dev/null && sudo scripts/uninstall_macos_linux.sh || scripts/uninstall_macos_linux.sh
+          if sudo -n true 2>/dev/null; then
+            sudo env OPENCLAW_REMOVAL_LOG="$OPENCLAW_REMOVAL_LOG" scripts/uninstall_macos_linux.sh
+          else
+            scripts/uninstall_macos_linux.sh
+          fi
+          exitcode=$?
+          if [[ $exitcode -eq 2 ]]; then exit 2; fi
+          # 0 = success, 1 = partial (manual removal done; Assert clean will verify)
+          exit 0
 
       - name: Uninstall (Windows)
         if: runner.os == 'Windows'
@@ -186,6 +194,8 @@ jobs:
           OPENCLAW_REMOVAL_LOG: ${{ runner.temp }}\OpenClawRemoval.log
         run: |
           .\scripts\uninstall_windows.ps1
+          if ($LASTEXITCODE -eq 2) { exit 2 }
+          exit 0
 
       # ---------- Post-uninstall verification ----------
       - name: Post-uninstall verification (macOS/Linux)
