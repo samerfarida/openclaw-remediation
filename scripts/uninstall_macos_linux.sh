@@ -302,20 +302,27 @@ if [[ -x "$HOME_DIR/.local/bin/openclaw" ]]; then
   log "removed" "kind=cli source=git_wrapper path=$HOME_DIR/.local/bin/openclaw openclaw_version=$(siem_quote "${OPENCLAW_CLI_VERSION:-unknown}")" "ok" ""
 fi
 
+# When running under sudo, npm/pnpm/bun global installs live in the invoking user's home (e.g. ~/.npm-global).
+# Run package-manager uninstalls as that user so we remove the right install (CI and MDM).
+RUN_AS_USER=()
+if [[ -n "${SUDO_UID:-}" ]] && [[ -n "${SUDO_USER:-}" ]] && [[ "$(id -u)" -eq 0 ]]; then
+  RUN_AS_USER=( sudo -u "$USER_NAME" env "HOME=$HOME_DIR" "PATH=$PATH" )
+fi
+
 # ---- remove global CLI (best-effort, per docs) ----
 if command -v npm >/dev/null 2>&1; then
   log "cli_remove" "remove kind=cli source=npm openclaw_version=$(siem_quote "${OPENCLAW_CLI_VERSION:-unknown}")" ""
-  npm rm -g openclaw >>"$LOG_FILE" 2>&1 || true
+  "${RUN_AS_USER[@]}" npm rm -g openclaw >>"$LOG_FILE" 2>&1 || true
   log "removed" "kind=cli source=npm openclaw_version=$(siem_quote "${OPENCLAW_CLI_VERSION:-unknown}")" "ok" ""
 fi
 if command -v pnpm >/dev/null 2>&1; then
   log "cli_remove" "remove kind=cli source=pnpm openclaw_version=$(siem_quote "${OPENCLAW_CLI_VERSION:-unknown}")" ""
-  pnpm remove -g openclaw >>"$LOG_FILE" 2>&1 || true
+  "${RUN_AS_USER[@]}" pnpm remove -g openclaw >>"$LOG_FILE" 2>&1 || true
   log "removed" "kind=cli source=pnpm openclaw_version=$(siem_quote "${OPENCLAW_CLI_VERSION:-unknown}")" "ok" ""
 fi
 if command -v bun >/dev/null 2>&1; then
   log "cli_remove" "remove kind=cli source=bun openclaw_version=$(siem_quote "${OPENCLAW_CLI_VERSION:-unknown}")" ""
-  bun remove -g openclaw >>"$LOG_FILE" 2>&1 || true
+  "${RUN_AS_USER[@]}" bun remove -g openclaw >>"$LOG_FILE" 2>&1 || true
   log "removed" "kind=cli source=bun openclaw_version=$(siem_quote "${OPENCLAW_CLI_VERSION:-unknown}")" "ok" ""
 fi
 
