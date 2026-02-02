@@ -127,8 +127,11 @@ jobs:
       - name: Install (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          # Skip onboarding and prompts so CI can run non-interactively (per https://docs.openclaw.ai/install)
+          OPENCLAW_NO_ONBOARD: 1
+          OPENCLAW_NO_PROMPT: 1
         run: |
-          # Official Windows installer one-liner (same as openclaw.ai docs); may prompt if non-interactive flags not supported upstream
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           try {
             iwr -useb https://openclaw.ai/install.ps1 | iex
