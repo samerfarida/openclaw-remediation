@@ -60,6 +60,8 @@ If OpenClaw adds a **new service, path, or artifact** (e.g. a new launchd label 
 3. **Docs:** Update [docs/compatibility.md](docs/compatibility.md) and the “Tested against” note in README if the install layout changed.
 4. **CHANGELOG:** Add an entry under Unreleased.
 
+**Releases:** When cutting a release (tag `v*`), update the [VERSION](VERSION) file at repo root to match the tag (e.g. `1.0.0` for `v1.0.0`) so script logs include the correct `version=` for SIEM. The release workflow will attach VERSION and the scripts to the GitHub Release.
+
 Keep changes in scope (OpenClaw only) and ensure lint + smoke + test all pass.
 
 ## Exit codes (scripts)

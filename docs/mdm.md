@@ -24,7 +24,7 @@ Use dry-run in a discovery phase, then run the real uninstall where needed.
 ## Packaging for MDM
 
 1. **Download** the script(s) from the repo (or a release). Prefer a **pinned tag** (e.g. `v1.0.0`) for reproducibility.
-2. **Integrity:** Verify SHA-256 checksums from the [Releases](https://github.com/samerfarida/openclaw-remediation/releases) page if you use releases.
+2. **Integrity:** Download scripts and `checksums.txt` from the [Releases](https://github.com/samerfarida/openclaw-remediation/releases) page; verify SHA-256 before deploying.
 3. **Deploy** the script to endpoints (e.g. drop into a known path or embed in the MDM payload).
 4. **Run** as the **target user** (or system, depending on your MDM). On Unix, `sudo` may be needed for `/var/log` and for unloading services; see README.
 5. **Collect** logs from `/var/log/openclaw_removal.log` (Unix) or `C:\ProgramData\OpenClawRemoval.log` (Windows) and exit code for reporting.

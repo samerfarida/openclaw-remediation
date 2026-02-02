@@ -92,6 +92,8 @@ jobs:
           echo "=== ps pre (filtered) ===" >> artifacts/baseline.txt
           ps aux | grep -E -i "openclaw|molt|claw" >> artifacts/baseline.txt || true
           if [ "$(uname -s)" = "Darwin" ]; then
+            echo "=== /Applications/OpenClaw.app pre ===" >> artifacts/baseline.txt
+            ls -la /Applications/OpenClaw.app 2>/dev/null >> artifacts/baseline.txt || echo "absent" >> artifacts/baseline.txt
             echo "=== launch agents pre ===" >> artifacts/baseline.txt
             ls -la "$HOME/Library/LaunchAgents" >> artifacts/baseline.txt || true
             echo "=== launchctl list (filtered) ===" >> artifacts/baseline.txt
@@ -111,7 +113,7 @@ jobs:
           "=== openclaw dirs pre ===" | Out-File artifacts\baseline.txt -Append
           Get-ChildItem -Force $env:USERPROFILE | Where-Object { $_.Name -like ".openclaw*" } | Format-List | Out-File artifacts\baseline.txt -Append
           "=== scheduled tasks pre (filtered) ===" | Out-File artifacts\baseline.txt -Append
-          try { schtasks /Query /FO LIST /V | Select-String -Pattern "OpenClaw|molt|claw" | Out-File artifacts\baseline.txt -Append } catch {}
+          try { schtasks /Query /FO LIST /V 2>$null | Select-String -Pattern "OpenClaw|molt|claw" | Out-File artifacts\baseline.txt -Append } catch {}
           "=== processes pre (filtered) ===" | Out-File artifacts\baseline.txt -Append
           Get-Process | Where-Object { $_.Name -match "openclaw|molt|claw" } | Format-Table | Out-File artifacts\baseline.txt -Append
 
@@ -119,21 +121,46 @@ jobs:
       - name: Install (macOS/Linux)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          # Non-interactive: skip onboarding and prompts (install.sh respects these)
+          OPENCLAW_NO_ONBOARD: 1
+          OPENCLAW_NO_PROMPT: 1
         run: |
           set -euo pipefail
           # SECURITY: do not use secrets. CI runners are ephemeral.
-          curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard
+          curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard --no-prompt
 
       - name: Install (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          # Skip onboarding and prompts so CI can run non-interactively (per https://docs.openclaw.ai/install)
+          OPENCLAW_NO_ONBOARD: 1
+          OPENCLAW_NO_PROMPT: 1
         run: |
-          # Official Windows installer; may prompt if non-interactive flags not supported upstream
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           try {
-            Invoke-Expression (Invoke-WebRequest -Uri "https://openclaw.ai/install.ps1" -UseBasicParsing).Content
+            iwr -useb https://openclaw.ai/install.ps1 | iex
           } catch {
             Write-Warning "Windows install failed or not available; uninstall step will still run (no install to remove)."
+            Write-Warning "Error: $($_.Exception.Message)"
           }
+
+      # ---------- Ensure app present for test (macOS): upstream install.sh does NOT install the app ----------
+      - name: Ensure OpenClaw.app present for removal test (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Upstream install.sh only installs CLI (npm global or git wrapper); it never installs /Applications/OpenClaw.app.
+          # So we create a stub when missing to exercise app-removal in our uninstall script.
+          if [ -d "/Applications/OpenClaw.app" ]; then
+            echo "OpenClaw.app already present"
+          else
+            echo "Creating stub /Applications/OpenClaw.app so we test app removal (upstream install.sh does not install the app)"
+            sudo mkdir -p /Applications/OpenClaw.app/Contents/MacOS
+            sudo touch /Applications/OpenClaw.app/Contents/MacOS/OpenClaw
+          fi
 
       # ---------- Post-install snapshot ----------
       - name: Post-install snapshot (macOS/Linux)
@@ -146,6 +173,8 @@ jobs:
           echo "=== ps post (filtered) ===" >> artifacts/post_install.txt
           ps aux | grep -E -i "openclaw|molt|claw" >> artifacts/post_install.txt || true
           if [ "$(uname -s)" = "Darwin" ]; then
+            echo "=== /Applications/OpenClaw.app post ===" >> artifacts/post_install.txt
+            ls -la /Applications/OpenClaw.app 2>/dev/null >> artifacts/post_install.txt || echo "absent" >> artifacts/post_install.txt
             echo "=== launch agents post ===" >> artifacts/post_install.txt
             ls -la "$HOME/Library/LaunchAgents" >> artifacts/post_install.txt || true
             echo "=== launchctl list (filtered) ===" >> artifacts/post_install.txt
@@ -177,9 +206,14 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/uninstall_macos_linux.sh
+          # Ensure npm global bin is on PATH so we detect/remove openclaw CLI (install may have set prefix to ~/.npm-global)
+          NPM_BIN="$(npm config get prefix 2>/dev/null)/bin"
+          [[ -d "$NPM_BIN" ]] && export PATH="$NPM_BIN:$PATH"
+          NPM_GLOBAL="$(npm prefix -g 2>/dev/null)/bin"
+          [[ -d "$NPM_GLOBAL" ]] && export PATH="$NPM_GLOBAL:$PATH"
           set +e  # Disable exit-on-error to capture script exit code
           if sudo -n true 2>/dev/null; then
-            sudo env OPENCLAW_REMOVAL_LOG="$OPENCLAW_REMOVAL_LOG" scripts/uninstall_macos_linux.sh
+            sudo env OPENCLAW_REMOVAL_LOG="$OPENCLAW_REMOVAL_LOG" PATH="$PATH" scripts/uninstall_macos_linux.sh
           else
             scripts/uninstall_macos_linux.sh
           fi
@@ -209,6 +243,10 @@ jobs:
           set -euo pipefail
           echo "=== openclaw dirs after uninstall ===" > artifacts/post_uninstall.txt
           ls -la "$HOME"/.openclaw* 2>/dev/null >> artifacts/post_uninstall.txt || echo "none" >> artifacts/post_uninstall.txt
+          if [ "$(uname -s)" = "Darwin" ]; then
+            echo "=== /Applications/OpenClaw.app after uninstall ===" >> artifacts/post_uninstall.txt
+            ls -la /Applications/OpenClaw.app 2>/dev/null >> artifacts/post_uninstall.txt || echo "absent" >> artifacts/post_uninstall.txt
+          fi
           echo "=== ps after uninstall (filtered) ===" >> artifacts/post_uninstall.txt
           ps aux | grep -E -i "openclaw|molt|claw" >> artifacts/post_uninstall.txt || echo "none" >> artifacts/post_uninstall.txt
           if [ "$(uname -s)" = "Darwin" ]; then
@@ -232,12 +270,18 @@ jobs:
           if ($dirs) { $dirs | Format-List | Out-File artifacts\post_uninstall.txt -Append } else { "none" | Out-File artifacts\post_uninstall.txt -Append }
           "=== scheduled tasks after uninstall (filtered) ===" | Out-File artifacts\post_uninstall.txt -Append
           try {
-            $m = schtasks /Query /FO LIST /V | Select-String -Pattern "OpenClaw|molt|claw"
+            $m = schtasks /Query /FO LIST /V 2>$null | Select-String -Pattern "OpenClaw|molt|claw"
             if ($m) { $m | Out-File artifacts\post_uninstall.txt -Append } else { "none" | Out-File artifacts\post_uninstall.txt -Append }
           } catch { "query failed" | Out-File artifacts\post_uninstall.txt -Append }
+          "=== openclaw in PATH after uninstall ===" | Out-File artifacts\post_uninstall.txt -Append
+          $oc = Get-Command openclaw -ErrorAction SilentlyContinue
+          if ($oc) { $oc.Source | Out-File artifacts\post_uninstall.txt -Append } else { "none" | Out-File artifacts\post_uninstall.txt -Append }
+          "=== npm list -g openclaw after uninstall ===" | Out-File artifacts\post_uninstall.txt -Append
+          try { npm list -g openclaw --depth=0 2>$null | Out-File artifacts\post_uninstall.txt -Append } catch { "none or error" | Out-File artifacts\post_uninstall.txt -Append }
           "=== processes after uninstall (filtered) ===" | Out-File artifacts\post_uninstall.txt -Append
           $p = Get-Process | Where-Object { $_.Name -match "openclaw|molt|claw" }
           if ($p) { $p | Format-Table | Out-File artifacts\post_uninstall.txt -Append } else { "none" | Out-File artifacts\post_uninstall.txt -Append }
+          exit 0
 
       # ---------- Assert clean (fail if artifacts remain) ----------
       - name: Assert clean (macOS/Linux)
@@ -250,7 +294,27 @@ jobs:
             ls -la "$HOME"/.openclaw* 2>/dev/null || true
             exit 1
           fi
+          if command -v openclaw >/dev/null 2>&1; then
+            echo "FAIL: openclaw still in PATH: $(command -v openclaw)"
+            exit 1
+          fi
+          if [ -x "$HOME/.local/bin/openclaw" ]; then
+            echo "FAIL: git wrapper still present: $HOME/.local/bin/openclaw"
+            exit 1
+          fi
+          if command -v npm >/dev/null 2>&1; then
+            if npm list -g openclaw --depth=0 2>/dev/null | grep -q "openclaw@"; then
+              echo "FAIL: npm global openclaw still installed"
+              npm list -g openclaw --depth=0 2>/dev/null || true
+              exit 1
+            fi
+          fi
           if [ "$(uname -s)" = "Darwin" ]; then
+            if [ -d "/Applications/OpenClaw.app" ]; then
+              echo "FAIL: /Applications/OpenClaw.app still present"
+              ls -la /Applications/OpenClaw.app
+              exit 1
+            fi
             if launchctl list 2>/dev/null | grep -qE -i "openclaw|molt|claw"; then
               echo "FAIL: launchd still has OpenClaw entries"
               launchctl list | grep -E -i "openclaw|molt|claw" || true
@@ -280,6 +344,36 @@ jobs:
             $tasks
             exit 1
           }
+          $oc = Get-Command openclaw -ErrorAction SilentlyContinue
+          if ($oc) {
+            Write-Error "FAIL: openclaw still in PATH: $($oc.Source)"
+            exit 1
+          }
+          if (Get-Command npm -ErrorAction SilentlyContinue) {
+            $npmList = npm list -g openclaw --depth=0 2>$null
+            if ($npmList -match "openclaw@") {
+              Write-Error "FAIL: npm global openclaw still installed"
+              exit 1
+            }
+          }
+          $npmShim = Join-Path $env:APPDATA "npm\openclaw.cmd"
+          if (Test-Path -LiteralPath $npmShim) {
+            Write-Error "FAIL: npm shim still present: $npmShim"
+            exit 1
+          }
+          $localPaths = @(
+            (Join-Path $env:LOCALAPPDATA "openclaw"),
+            (Join-Path $env:LOCALAPPDATA "OpenClaw"),
+            (Join-Path $env:LOCALAPPDATA "Programs\openclaw"),
+            (Join-Path $env:LOCALAPPDATA "Programs\OpenClaw")
+          )
+          foreach ($p in $localPaths) {
+            if (Test-Path -LiteralPath $p) {
+              Write-Error "FAIL: OpenClaw install path still present: $p"
+              exit 1
+            }
+          }
+          $LASTEXITCODE = 0
           Write-Host "PASS: endpoint clean"
 
       # ---------- Gather scripts log and index for artifacts ----------
