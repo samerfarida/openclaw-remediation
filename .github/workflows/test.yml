@@ -206,9 +206,14 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/uninstall_macos_linux.sh
+          # Ensure npm global bin is on PATH so we detect/remove openclaw CLI (install may have set prefix to ~/.npm-global)
+          NPM_BIN="$(npm config get prefix 2>/dev/null)/bin"
+          [[ -d "$NPM_BIN" ]] && export PATH="$NPM_BIN:$PATH"
+          NPM_GLOBAL="$(npm prefix -g 2>/dev/null)/bin"
+          [[ -d "$NPM_GLOBAL" ]] && export PATH="$NPM_GLOBAL:$PATH"
           set +e  # Disable exit-on-error to capture script exit code
           if sudo -n true 2>/dev/null; then
-            sudo env OPENCLAW_REMOVAL_LOG="$OPENCLAW_REMOVAL_LOG" scripts/uninstall_macos_linux.sh
+            sudo env OPENCLAW_REMOVAL_LOG="$OPENCLAW_REMOVAL_LOG" PATH="$PATH" scripts/uninstall_macos_linux.sh
           else
             scripts/uninstall_macos_linux.sh
           fi
@@ -296,6 +301,13 @@ jobs:
           if [ -x "$HOME/.local/bin/openclaw" ]; then
             echo "FAIL: git wrapper still present: $HOME/.local/bin/openclaw"
             exit 1
+          fi
+          if command -v npm >/dev/null 2>&1; then
+            if npm list -g openclaw --depth=0 2>/dev/null | grep -q "openclaw@"; then
+              echo "FAIL: npm global openclaw still installed"
+              npm list -g openclaw --depth=0 2>/dev/null || true
+              exit 1
+            fi
           fi
           if [ "$(uname -s)" = "Darwin" ]; then
             if [ -d "/Applications/OpenClaw.app" ]; then

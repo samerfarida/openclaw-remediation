@@ -194,9 +194,11 @@ if [[ "$FOUND" -eq 0 ]]; then
 fi
 
 # ---- uninstall via official CLI if possible ----
+# CLI stdout/stderr to separate file so SIEM log stays one-event-per-line
+CLI_OUTPUT="${LOG_FILE}.cli_output"
 if command -v openclaw >/dev/null 2>&1; then
   log "uninstall_cli" "openclaw uninstall --all --yes --non-interactive" ""
-  if openclaw uninstall --all --yes --non-interactive >>"$LOG_FILE" 2>&1; then
+  if openclaw uninstall --all --yes --non-interactive >>"$CLI_OUTPUT" 2>&1; then
     log "uninstall_cli" "ok" ""
   else
     RESULT="partial"
@@ -206,7 +208,7 @@ else
   if command -v npx >/dev/null 2>&1; then
     log "uninstall_cli" "npx -y openclaw uninstall" ""
     echo "openclaw-remediation: trying npx openclaw uninstall (may take a moment)..." >&2
-    if npx -y openclaw uninstall --all --yes --non-interactive >>"$LOG_FILE" 2>&1; then
+    if npx -y openclaw uninstall --all --yes --non-interactive >>"$CLI_OUTPUT" 2>&1; then
       log "uninstall_cli" "ok" ""
     else
       RESULT="partial"

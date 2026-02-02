@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **FAQ** ([docs/faq.md](docs/faq.md)): “What if OpenClaw isn’t installed?”, “Why exit 1?”, “Why exit 2?”, “Script seemed to hang”, “Which version ran?”, “All users?”, log paths, log rotation.
 - **logrotate example** in [docs/siem.md](docs/siem.md) for `/var/log/openclaw_removal.log`.
 ### Changed
+- **macOS/Linux script:** OpenClaw CLI uninstall stdout/stderr is written to `$LOG_FILE.cli_output` so the main SIEM log stays one-event-per-line (no interleaved “Removed ~/.openclaw” etc.).
+- **CI (Linux):** Uninstall step prepends npm global bin to PATH so we detect and remove npm global openclaw when install used a custom prefix (e.g. ~/.npm-global). Assert clean (macOS/Linux) now fails if `npm list -g openclaw` shows openclaw installed.
 - **macOS/Linux:** Dry-run and “already clean” detection now include **pnpm** and **bun** global `openclaw` (previously only npm and `openclaw` in PATH), so endpoints with only pnpm/bun-installed CLI are no longer reported as clean without removal.
 - **Windows:** Create log file directory if missing when `OPENCLAW_REMOVAL_LOG` points to a custom path; set **result=partial** and log exit code when npm/pnpm/bun global uninstall returns non-zero (SIEM visibility).
 - **CI (Windows):** Baseline snapshot suppresses schtasks stderr (`2>$null`) so task-query noise does not appear in artifacts.
