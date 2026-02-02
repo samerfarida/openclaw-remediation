@@ -75,13 +75,13 @@ log "start" "uninstall" ""
 # Progress to stderr so interactive runs don't appear to hang (CI/MDM can redirect)
 echo "openclaw-remediation: logging to $LOG_FILE" >&2
 
-# Resolve OpenClaw CLI version for SIEM (kind=cli, version=...)
+# Resolve OpenClaw CLI version for SIEM (kind=cli, version=...); must not fail when absent (set -e)
 OPENCLAW_CLI_VERSION=""
 if command -v openclaw >/dev/null 2>&1; then
-  OPENCLAW_CLI_VERSION="$(openclaw --version 2>/dev/null | head -n1 | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  OPENCLAW_CLI_VERSION="$(openclaw --version 2>/dev/null | head -n1 | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')" || true
 fi
 if [[ -z "$OPENCLAW_CLI_VERSION" ]] && command -v npm >/dev/null 2>&1; then
-  OPENCLAW_CLI_VERSION="$(npm list -g openclaw --depth=0 2>/dev/null | grep -oE 'openclaw@[^[:space:]]+' | head -n1 | sed 's/^openclaw@//')"
+  OPENCLAW_CLI_VERSION="$(npm list -g openclaw --depth=0 2>/dev/null | grep -oE 'openclaw@[^[:space:]]+' | head -n1 | sed 's/^openclaw@//')" || true
 fi
 
 # Resolve macOS app version for SIEM (kind=app, version=...)
