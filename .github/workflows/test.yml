@@ -129,10 +129,13 @@ jobs:
         shell: pwsh
         run: |
           # Official Windows installer; may prompt if non-interactive flags not supported upstream
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           try {
-            Invoke-Expression (Invoke-WebRequest -Uri "https://openclaw.ai/install.ps1" -UseBasicParsing).Content
+            $script = Invoke-WebRequest -Uri "https://openclaw.ai/install.ps1" -UseBasicParsing -ErrorAction Stop
+            Invoke-Expression $script.Content
           } catch {
             Write-Warning "Windows install failed or not available; uninstall step will still run (no install to remove)."
+            Write-Warning "Error: $($_.Exception.Message)"
           }
 
       # ---------- Post-install snapshot ----------

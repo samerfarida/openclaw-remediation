@@ -9,6 +9,8 @@ Uninstall scripts in this repo are validated against **OpenClaw** installs produ
 | [openclaw.ai](https://openclaw.ai/) – `install.sh` (macOS/Linux) | 2025-02 |
 | [openclaw.ai](https://openclaw.ai/) – `install.ps1` (Windows) | 2025-02 |
 
+**CI note:** On GitHub Actions, the Windows install step may fail if the upstream installer requires user interaction or is temporarily unavailable. The workflow catches the error and continues; the uninstall step then runs on a clean runner (no OpenClaw installed) and Assert clean still passes. To get full install→uninstall coverage on Windows, run the workflow in an environment where the OpenClaw Windows installer succeeds (e.g. self-hosted runner with network access and any required flags).
+
 Artifacts we remove are those created by these installers per [OpenClaw uninstall docs](https://docs.openclaw.ai/install/uninstall):
 
 - State dirs: `~/.openclaw`, `~/.openclaw-<profile>`
