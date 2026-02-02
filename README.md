@@ -72,13 +72,16 @@ If you are looking for a generalized agent control framework, this is **not** th
 │   │   ├── test.yml
 │   │   └── release-checksums.yml
 │   ├── ISSUE_TEMPLATE/
+│   ├── CODEOWNERS
 │   ├── dependabot.yml
 │   └── PULL_REQUEST_TEMPLATE.md
 ├── docs/
 │   ├── compatibility.md
+│   ├── faq.md
 │   ├── siem.md
 │   └── mdm.md
 ├── artifacts/          # CI-generated (gitignored)
+├── VERSION             # Script version (read by scripts for SIEM)
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
 ├── LICENSE
@@ -125,6 +128,8 @@ Scripts are **idempotent** and safe to run multiple times.
 
 **Detect only (no removal):** Use `--dry-run` or `--detect-only` to report what would be removed without making changes. Exit 0 = nothing found; exit 2 = OpenClaw artifacts present. Useful for audits and "who has OpenClaw?" See [docs/mdm.md](docs/mdm.md).
 
+**FAQ:** Common questions (e.g. “What if OpenClaw isn’t installed?”, “Why exit 1?”) are in [docs/faq.md](docs/faq.md).
+
 ```bash
 # macOS/Linux
 ./scripts/uninstall_macos_linux.sh --dry-run
@@ -139,7 +144,7 @@ Scripts are **idempotent** and safe to run multiple times.
 |------|---------|
 | 0 | Success (clean or already clean) |
 | 1 | Partial (e.g. CLI uninstall failed but manual cleanup ran) |
-| 2 | Failure (critical step failed) |
+| 2 | Failure (critical step failed), or dry-run found artifacts (would remove) |
 
 ---
 
@@ -160,8 +165,8 @@ Scripts write **SIEM-friendly**, key=value logs so log shippers can parse them w
 | Windows | `C:\ProgramData\OpenClawRemoval.log` |
 
 - **Override:** Set `OPENCLAW_REMOVAL_LOG` (macOS/Linux) or `OPENCLAW_REMOVAL_LOG` (Windows) to a custom log path. On macOS/Linux, set `OPENCLAW_STATE_DIR` to also clean a custom OpenClaw state directory (in addition to default `~/.openclaw*`).
-- **Format:** One line per event: `ts=<UTC ISO8601> host=... user=... event=... action=... result=...`
-- **Outcome:** Final line includes `result=success`, `result=partial`, or `result=failure` for alerting.
+- **Format:** One line per event: `ts=<UTC ISO8601> host=... user=... os=... os_version=... os_arch=... event=... action=... result=... script=openclaw_remediation version=... severity=info|warning|error`. Includes OS name/version/arch for enterprise fleet visibility. Values with spaces or `=` are double-quoted for SIEM parsing.
+- **Outcome:** Final line includes `result=success`, `result=partial`, or `result=failure` (or `result=would_remove` for dry-run). Use `severity=error` or `result=partial|failure` for alerting.
 - **Log rotation:** Scripts do not rotate logs; rely on OS or SIEM log rotation for these paths.
 - **SIEM:** Add the paths above to your log collection (e.g. Splunk, Elastic, Sentinel, Datadog) and parse on `event` and `result` for dashboards and alerts.
 - **Integrity:** When deploying via MDM, verify script integrity with SHA-256. On release tag push, the repo workflow produces a `checksums.txt` artifact; you can also run `sha256sum scripts/*.sh scripts/*.ps1` (Unix) or equivalent locally.
@@ -190,7 +195,7 @@ The workflow ([`.github/workflows/test.yml`](.github/workflows/test.yml)) runs o
 
 Runs on: **macOS, Linux, Windows.**
 
-**Releases:** On tag push (`v*`), [release-checksums.yml](.github/workflows/release-checksums.yml) computes SHA-256 of both scripts and uploads `checksums.txt` as an artifact. Use it to verify script integrity when deploying via MDM.
+**Releases:** On tag push (`v*`), [release-checksums.yml](.github/workflows/release-checksums.yml) computes SHA-256 of both scripts, creates a GitHub Release, and attaches `checksums.txt` plus the scripts. Use the [Releases](https://github.com/samerfarida/openclaw-remediation/releases) page to download and verify integrity when deploying via MDM.
 
 **Branch protection:** Require the **Lint** and **Test** status checks to pass before merging into `main`.
 

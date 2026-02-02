@@ -20,24 +20,60 @@ if ! ( : >> "$LOG_FILE" ) 2>/dev/null; then
   mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 fi
 
-# SIEM-friendly: one line per event, key=value, ts in UTC
+# SIEM-friendly: one line per event, key=value, ts in UTC; quote values with space or = for parsing
 ts() { date -u +'%Y-%m-%dT%H:%M:%SZ'; }
+siem_quote() {
+  local v="$1"
+  if [[ "$v" = *" "* ]] || [[ "$v" = *"="* ]]; then
+    printf '"%s"' "${v//\"/\\\"}"
+  else
+    printf '%s' "$v"
+  fi
+}
 HOST="$(hostname)"
 USER_NAME="${SUDO_USER:-$USER}"
 HOME_DIR="$(getent passwd "$USER_NAME" 2>/dev/null | cut -d: -f6)" || HOME_DIR="${HOME:-}"
 [[ -z "$HOME_DIR" ]] && HOME_DIR="$HOME"
 
+# OS and arch for SIEM (enterprise context)
+OS_NAME="$(uname -s)"
+OS_ARCH="$(uname -m)"
+OS_VERSION=""
+if [[ "$OS_NAME" = "Darwin" ]]; then
+  OS_VERSION="$(sw_vers -productVersion 2>/dev/null)" || OS_VERSION="$(uname -r)"
+elif [[ "$OS_NAME" = "Linux" ]]; then
+  if [[ -f /etc/os-release ]]; then
+    # shellcheck source=/dev/null
+    OS_VERSION="$(. /etc/os-release 2>/dev/null && echo "${ID:-linux}-${VERSION_ID:-$(uname -r)}")"
+  fi
+  [[ -z "$OS_VERSION" ]] && OS_VERSION="$(uname -r)"
+else
+  OS_VERSION="$(uname -r)"
+fi
+
+# Script version for SIEM (from repo VERSION file when present)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
+  SCRIPT_VERSION="$(head -n1 "$SCRIPT_DIR/../VERSION" | tr -d '\r\n')"
+else
+  SCRIPT_VERSION="unknown"
+fi
+
 log() {
-  local event="$1" action="${2:-}" result="${3:-}"
+  local event="$1" action="${2:-}" result="${3:-}" sev="${4:-info}"
   local line
-  line="ts=$(ts) host=$HOST user=$USER_NAME event=$event"
-  [[ -n "$action" ]] && line="$line action=$action"
-  [[ -n "$result" ]] && line="$line result=$result"
+  line="ts=$(ts) host=$(siem_quote "$HOST") user=$(siem_quote "$USER_NAME") os=$OS_NAME os_version=$(siem_quote "$OS_VERSION") os_arch=$OS_ARCH event=$event script=openclaw_remediation version=$SCRIPT_VERSION"
+  [[ -n "$action" ]] && line="$line action=$(siem_quote "$action")"
+  [[ -n "$result" ]] && line="$line result=$(siem_quote "$result")"
+  line="$line severity=$sev"
   printf '%s\n' "$line" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 RESULT="success"
 log "start" "uninstall" ""
+
+# Progress to stderr so interactive runs don't appear to hang (CI/MDM can redirect)
+echo "openclaw-remediation: logging to $LOG_FILE" >&2
 
 # ---- detection ----
 STATE_DIRS=( "$HOME_DIR/.openclaw" )
@@ -61,6 +97,7 @@ fi
 
 # ---- dry-run: report only, no removal ----
 if [[ -n "${DRY_RUN:-}" ]]; then
+  echo "openclaw-remediation: dry-run (detect only), no removal" >&2
   OS="$(uname -s)"
   if [[ "$OS" = "Darwin" ]]; then
     if launchctl list 2>/dev/null | grep -qE -i "openclaw|molt|claw"; then
@@ -84,8 +121,28 @@ if [[ -n "${DRY_RUN:-}" ]]; then
     log "dry_run" "would_remove global_cli_npm" ""
     FOUND=1
   fi
-  log "complete" "" "$([[ "$FOUND" -eq 1 ]] && echo "would_remove" || echo "clean")"
+  log "complete" "" "$([[ "$FOUND" -eq 1 ]] && echo "would_remove" || echo "clean")" "$([[ "$FOUND" -eq 1 ]] && echo "warning" || echo "info")"
   [[ "$FOUND" -eq 1 ]] && exit 2 || exit 0
+fi
+
+# ---- already clean: skip uninstall and npx when nothing is present ----
+OS="$(uname -s)"
+if [[ "$OS" = "Darwin" ]]; then
+  launchctl list 2>/dev/null | grep -qE -i "openclaw|molt|claw" && FOUND=1
+  [[ -d "/Applications/OpenClaw.app" ]] && FOUND=1
+else
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user list-unit-files 2>/dev/null | grep -qE -i "openclaw|molt|claw" && FOUND=1
+  fi
+fi
+command -v openclaw >/dev/null 2>&1 && FOUND=1
+if command -v npm >/dev/null 2>&1; then
+  npm list -g openclaw --depth=0 2>/dev/null | grep -q openclaw && FOUND=1
+fi
+if [[ "$FOUND" -eq 0 ]]; then
+  log "complete" "already_clean" "" "info"
+  echo "openclaw-remediation: result=success (already clean, nothing to remove)" >&2
+  exit 0
 fi
 
 # ---- uninstall via official CLI if possible ----
@@ -100,6 +157,7 @@ if command -v openclaw >/dev/null 2>&1; then
 else
   if command -v npx >/dev/null 2>&1; then
     log "uninstall_cli" "npx -y openclaw uninstall" ""
+    echo "openclaw-remediation: trying npx openclaw uninstall (may take a moment)..." >&2
     if npx -y openclaw uninstall --all --yes --non-interactive >>"$LOG_FILE" 2>&1; then
       log "uninstall_cli" "ok" ""
     else
@@ -187,8 +245,10 @@ if command -v bun >/dev/null 2>&1; then
   bun remove -g openclaw >>"$LOG_FILE" 2>&1 || true
 fi
 
-log "complete" "" "$RESULT"
+SEV="info"; [[ "$RESULT" = "partial" ]] && SEV="warning"; [[ "$RESULT" = "failure" ]] && SEV="error"
+log "complete" "" "$RESULT" "$SEV"
 
+echo "openclaw-remediation: result=$RESULT (see $LOG_FILE)" >&2
 if [[ "$RESULT" = "success" ]]; then
   exit 0
 elif [[ "$RESULT" = "partial" ]]; then

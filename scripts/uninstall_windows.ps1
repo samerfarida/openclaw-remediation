@@ -6,17 +6,40 @@ $Log = if ($env:OPENCLAW_REMOVAL_LOG) { $env:OPENCLAW_REMOVAL_LOG } else { "C:\P
 $HostName = $env:COMPUTERNAME
 $UserName = $env:USERNAME
 
-# SIEM-friendly: one line per event, key=value, ts in UTC
+# OS and arch for SIEM (enterprise context)
+$OsName = "Windows"
+$OsVersion = "unknown"
+$OsArch = $env:PROCESSOR_ARCHITECTURE
+try {
+  $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+  if ($os) {
+    $OsVersion = $os.Version
+    if ($os.OSArchitecture) { $OsArch = $os.OSArchitecture }
+  }
+} catch {}
+
+# Script version for SIEM (from repo VERSION file when present)
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$versionFile = Join-Path (Split-Path -Parent $scriptDir) "VERSION"
+$ScriptVersion = if (Test-Path $versionFile) { (Get-Content $versionFile -Raw -ErrorAction SilentlyContinue).Trim() } else { "unknown" }
+
+# SIEM-friendly: one line per event, key=value, ts in UTC; quote values with space or = for parsing
+function SiemQuote([string]$v) {
+  if ($v -match '[\s=]') { return '"{0}"' -f ($v -replace '"', '\"') }
+  return $v
+}
 function Write-SiemLog {
-  param([string]$Event, [string]$Action = "", [string]$Result = "")
+  param([string]$Event, [string]$Action = "", [string]$Result = "", [string]$Severity = "info")
   $ts = (Get-Date).ToUniversalTime().ToString("o")
-  $line = "ts=$ts host=$HostName user=$UserName event=$Event"
-  if ($Action) { $line += " action=$Action" }
-  if ($Result) { $line += " result=$Result" }
+  $line = "ts=$ts host=$(SiemQuote $HostName) user=$(SiemQuote $UserName) os=$OsName os_version=$(SiemQuote $OsVersion) os_arch=$(SiemQuote $OsArch) event=$Event script=openclaw_remediation version=$ScriptVersion"
+  if ($Action) { $line += " action=$(SiemQuote $Action)" }
+  if ($Result) { $line += " result=$(SiemQuote $Result)" }
+  $line += " severity=$Severity"
   Add-Content -Path $Log -Value $line -ErrorAction SilentlyContinue
 }
 
 Write-SiemLog -Event "start" -Action $(if ($DryRun) { "detect_only" } else { "uninstall" })
+[Console]::Error.WriteLine("openclaw-remediation: logging to $Log")
 
 $Result = "success"
 $WouldRemove = $false
@@ -33,8 +56,18 @@ try {
 } catch {}
 
 if ($DryRun) {
-  Write-SiemLog -Event "complete" -Result $(if ($WouldRemove) { "would_remove" } else { "clean" })
+  [Console]::Error.WriteLine("openclaw-remediation: dry-run (detect only), no removal")
+  $dryResult = if ($WouldRemove) { "would_remove" } else { "clean" }
+  $drySev = if ($WouldRemove) { "warning" } else { "info" }
+  Write-SiemLog -Event "complete" -Result $dryResult -Severity $drySev
   if ($WouldRemove) { exit 2 } else { exit 0 }
+}
+
+# Already clean: skip removal when nothing is present
+if (-not $WouldRemove) {
+  Write-SiemLog -Event "complete" -Action "already_clean" -Result "" -Severity "info"
+  [Console]::Error.WriteLine("openclaw-remediation: result=success (already clean, nothing to remove)")
+  exit 0
 }
 
 # Remove Scheduled Task (doc: "OpenClaw Gateway" and "OpenClaw Gateway (<profile>)")
@@ -68,7 +101,9 @@ Get-ChildItem -Path $userHome -Filter ".openclaw*" -Force -ErrorAction SilentlyC
     Remove-Item -Recurse -Force $_.FullName
   }
 
-Write-SiemLog -Event "complete" -Result $Result
+$sev = if ($Result -eq "success") { "info" } elseif ($Result -eq "partial") { "warning" } else { "error" }
+Write-SiemLog -Event "complete" -Result $Result -Severity $sev
+[Console]::Error.WriteLine("openclaw-remediation: result=$Result (see $Log)")
 
 if ($Result -eq "success") { exit 0 }
 if ($Result -eq "partial") { exit 1 }
