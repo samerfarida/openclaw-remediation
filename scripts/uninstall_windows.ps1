@@ -3,6 +3,10 @@ param([switch]$DryRun)
 
 # Log path: ProgramData by default; $env:OPENCLAW_REMOVAL_LOG overrides
 $Log = if ($env:OPENCLAW_REMOVAL_LOG) { $env:OPENCLAW_REMOVAL_LOG } else { "C:\ProgramData\OpenClawRemoval.log" }
+$LogDir = Split-Path -Parent $Log
+if ($LogDir -and -not (Test-Path -LiteralPath $LogDir -ErrorAction SilentlyContinue)) {
+  New-Item -ItemType Directory -Force -Path $LogDir -ErrorAction SilentlyContinue | Out-Null
+}
 $HostName = $env:COMPUTERNAME
 $UserName = $env:USERNAME
 
@@ -44,15 +48,25 @@ Write-SiemLog -Event "start" -Action $(if ($DryRun) { "detect_only" } else { "un
 $Result = "success"
 $WouldRemove = $false
 
-# Detect: state dirs
-$userHome = $env:USERPROFILE
-$stateDirs = Get-ChildItem -Path $userHome -Filter ".openclaw*" -Force -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer }
-if ($stateDirs) { $WouldRemove = $true; foreach ($d in $stateDirs) { Write-SiemLog -Event "detect" -Action "state_dir=$($d.FullName)" } }
+# Resolve OpenClaw CLI version for SIEM (kind=cli, openclaw_version=...)
+$OpenClawCliVersion = "unknown"
+try {
+  if (Get-Command npm -ErrorAction SilentlyContinue) {
+    $out = npm list -g openclaw --depth=0 2>$null
+    if ($out -match "openclaw@([^\s]+)") { $OpenClawCliVersion = $Matches[1] }
+  }
+} catch {}
 
-# Detect: scheduled tasks
+$userHome = $env:USERPROFILE
+
+# Detect: state dirs
+$stateDirs = Get-ChildItem -Path $userHome -Filter ".openclaw*" -Force -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer }
+if ($stateDirs) { $WouldRemove = $true; foreach ($d in $stateDirs) { Write-SiemLog -Event "detect" -Action "kind=state_dir path=$($d.FullName)" } }
+
+# Detect: scheduled tasks (kind=service)
 try {
   $tasks = schtasks /Query /FO LIST /V 2>$null | Select-String -Pattern "OpenClaw|molt|claw"
-  if ($tasks) { $WouldRemove = $true; Write-SiemLog -Event "dry_run" -Action "would_remove_scheduled_tasks" }
+  if ($tasks) { $WouldRemove = $true; Write-SiemLog -Event "detect" -Action "kind=service source=scheduled_task" }
 } catch {}
 
 # Detect: global CLI (npm/pnpm/bun) and common Windows install paths (per docs/compatibility)
@@ -64,18 +78,18 @@ try {
   }
 } catch {}
 if (-not $npmGlobal -and (Test-Path -LiteralPath "$env:APPDATA\npm\openclaw.cmd" -ErrorAction SilentlyContinue)) { $npmGlobal = $true }
-if ($npmGlobal) { $WouldRemove = $true; Write-SiemLog -Event "detect" -Action "cli_npm_global" }
+if ($npmGlobal) { $WouldRemove = $true; Write-SiemLog -Event "detect" -Action "kind=cli source=npm openclaw_version=$OpenClawCliVersion" }
 
 try {
   if (Get-Command pnpm -ErrorAction SilentlyContinue) {
     $out = pnpm list -g openclaw 2>$null
-    if ($out -match "openclaw") { $WouldRemove = $true; Write-SiemLog -Event "detect" -Action "cli_pnpm_global" }
+    if ($out -match "openclaw") { $WouldRemove = $true; Write-SiemLog -Event "detect" -Action "kind=cli source=pnpm openclaw_version=$OpenClawCliVersion" }
   }
 } catch {}
 try {
   if (Get-Command bun -ErrorAction SilentlyContinue) {
     $out = bun pm ls -g 2>$null
-    if ($out -match "openclaw") { $WouldRemove = $true; Write-SiemLog -Event "detect" -Action "cli_bun_global" }
+    if ($out -match "openclaw") { $WouldRemove = $true; Write-SiemLog -Event "detect" -Action "kind=cli source=bun openclaw_version=$OpenClawCliVersion" }
   }
 } catch {}
 
@@ -89,7 +103,7 @@ $localPaths = @(
 foreach ($p in $localPaths) {
   if (Test-Path -LiteralPath $p -ErrorAction SilentlyContinue) {
     $WouldRemove = $true
-    Write-SiemLog -Event "detect" -Action "install_path=$p"
+    Write-SiemLog -Event "detect" -Action "kind=install_path path=$p"
   }
 }
 
@@ -113,8 +127,9 @@ if (-not $WouldRemove) {
 try {
   $null = schtasks /Query /TN "OpenClaw Gateway" 2>&1
   if ($LASTEXITCODE -eq 0) {
-    Write-SiemLog -Event "manual" -Action "task_delete=OpenClaw Gateway"
+    Write-SiemLog -Event "manual" -Action "remove kind=service source=scheduled_task task_name=OpenClaw Gateway"
     schtasks /Delete /F /TN "OpenClaw Gateway" 2>$null | Out-Null
+    Write-SiemLog -Event "removed" -Action "kind=service source=scheduled_task task_name=OpenClaw Gateway" -Result "ok"
   }
 } catch {}
 
@@ -124,8 +139,9 @@ try {
   foreach ($m in $all) {
     $tn = $m.Matches[0].Groups[1].Value.Trim()
     if ($tn -match "OpenClaw Gateway") {
-      Write-SiemLog -Event "manual" -Action "task_delete=$tn"
+      Write-SiemLog -Event "manual" -Action "remove kind=service source=scheduled_task task_name=$tn"
       schtasks /Delete /F /TN $tn 2>$null | Out-Null
+      Write-SiemLog -Event "removed" -Action "kind=service source=scheduled_task task_name=$tn" -Result "ok"
     }
   }
 } catch {}
@@ -135,30 +151,37 @@ Get-ChildItem -Path $userHome -Filter ".openclaw*" -Force -ErrorAction SilentlyC
   Where-Object { $_.PSIsContainer } | ForEach-Object {
     $cmdPath = Join-Path $_.FullName "gateway.cmd"
     if (Test-Path $cmdPath) {
-      Write-SiemLog -Event "manual" -Action "remove_gateway_cmd=$cmdPath"
+      Write-SiemLog -Event "manual" -Action "remove kind=state_dir gateway_cmd=$cmdPath"
       Remove-Item -Force $cmdPath
     }
-    Write-SiemLog -Event "remove_state" -Action "path=$($_.FullName)"
+    Write-SiemLog -Event "remove_state" -Action "kind=state_dir path=$($_.FullName)"
     Remove-Item -Recurse -Force $_.FullName
+    Write-SiemLog -Event "removed" -Action "kind=state_dir path=$($_.FullName)" -Result "ok"
   }
 
-# Remove global CLI (npm/pnpm/bun) per docs/compatibility
+# Remove global CLI (npm/pnpm/bun) per docs/compatibility; set partial if any uninstall fails
 try {
   if (Get-Command npm -ErrorAction SilentlyContinue) {
-    Write-SiemLog -Event "cli_remove" -Action "npm_uninstall_global"
+    Write-SiemLog -Event "cli_remove" -Action "remove kind=cli source=npm openclaw_version=$OpenClawCliVersion"
     npm uninstall -g openclaw 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { $Result = "partial"; Write-SiemLog -Event "cli_remove" -Action "npm_uninstall_exit" -Result "code=$LASTEXITCODE" -Severity "warning" }
+    else { Write-SiemLog -Event "removed" -Action "kind=cli source=npm openclaw_version=$OpenClawCliVersion" -Result "ok" }
   }
 } catch {}
 try {
   if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-    Write-SiemLog -Event "cli_remove" -Action "pnpm_remove_global"
+    Write-SiemLog -Event "cli_remove" -Action "remove kind=cli source=pnpm openclaw_version=$OpenClawCliVersion"
     pnpm remove -g openclaw 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { $Result = "partial"; Write-SiemLog -Event "cli_remove" -Action "pnpm_remove_exit" -Result "code=$LASTEXITCODE" -Severity "warning" }
+    else { Write-SiemLog -Event "removed" -Action "kind=cli source=pnpm openclaw_version=$OpenClawCliVersion" -Result "ok" }
   }
 } catch {}
 try {
   if (Get-Command bun -ErrorAction SilentlyContinue) {
-    Write-SiemLog -Event "cli_remove" -Action "bun_remove_global"
+    Write-SiemLog -Event "cli_remove" -Action "remove kind=cli source=bun openclaw_version=$OpenClawCliVersion"
     bun remove -g openclaw 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { $Result = "partial"; Write-SiemLog -Event "cli_remove" -Action "bun_remove_exit" -Result "code=$LASTEXITCODE" -Severity "warning" }
+    else { Write-SiemLog -Event "removed" -Action "kind=cli source=bun openclaw_version=$OpenClawCliVersion" -Result "ok" }
   }
 } catch {}
 # Best-effort: remove CLI shims from %APPDATA%\npm if still present
@@ -166,16 +189,18 @@ $npmBin = Join-Path $env:APPDATA "npm"
 foreach ($name in @("openclaw.cmd", "openclaw", "openclaw.ps1")) {
   $fp = Join-Path $npmBin $name
   if (Test-Path -LiteralPath $fp -ErrorAction SilentlyContinue) {
-    Write-SiemLog -Event "manual" -Action "remove_npm_shim=$fp"
+    Write-SiemLog -Event "manual" -Action "remove kind=cli_shim path=$fp"
     Remove-Item -Force $fp -ErrorAction SilentlyContinue
+    Write-SiemLog -Event "removed" -Action "kind=cli_shim path=$fp" -Result "ok"
   }
 }
 
 # Remove common Windows install dirs (standalone layout)
 foreach ($p in $localPaths) {
   if (Test-Path -LiteralPath $p -ErrorAction SilentlyContinue) {
-    Write-SiemLog -Event "remove_state" -Action "path=$p"
+    Write-SiemLog -Event "remove_state" -Action "kind=install_path path=$p"
     Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue
+    Write-SiemLog -Event "removed" -Action "kind=install_path path=$p" -Result "ok"
   }
 }
 

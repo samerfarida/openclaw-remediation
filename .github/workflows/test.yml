@@ -92,6 +92,8 @@ jobs:
           echo "=== ps pre (filtered) ===" >> artifacts/baseline.txt
           ps aux | grep -E -i "openclaw|molt|claw" >> artifacts/baseline.txt || true
           if [ "$(uname -s)" = "Darwin" ]; then
+            echo "=== /Applications/OpenClaw.app pre ===" >> artifacts/baseline.txt
+            ls -la /Applications/OpenClaw.app 2>/dev/null >> artifacts/baseline.txt || echo "absent" >> artifacts/baseline.txt
             echo "=== launch agents pre ===" >> artifacts/baseline.txt
             ls -la "$HOME/Library/LaunchAgents" >> artifacts/baseline.txt || true
             echo "=== launchctl list (filtered) ===" >> artifacts/baseline.txt
@@ -111,7 +113,7 @@ jobs:
           "=== openclaw dirs pre ===" | Out-File artifacts\baseline.txt -Append
           Get-ChildItem -Force $env:USERPROFILE | Where-Object { $_.Name -like ".openclaw*" } | Format-List | Out-File artifacts\baseline.txt -Append
           "=== scheduled tasks pre (filtered) ===" | Out-File artifacts\baseline.txt -Append
-          try { schtasks /Query /FO LIST /V | Select-String -Pattern "OpenClaw|molt|claw" | Out-File artifacts\baseline.txt -Append } catch {}
+          try { schtasks /Query /FO LIST /V 2>$null | Select-String -Pattern "OpenClaw|molt|claw" | Out-File artifacts\baseline.txt -Append } catch {}
           "=== processes pre (filtered) ===" | Out-File artifacts\baseline.txt -Append
           Get-Process | Where-Object { $_.Name -match "openclaw|molt|claw" } | Format-Table | Out-File artifacts\baseline.txt -Append
 
@@ -119,10 +121,14 @@ jobs:
       - name: Install (macOS/Linux)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          # Non-interactive: skip onboarding and prompts (install.sh respects these)
+          OPENCLAW_NO_ONBOARD: 1
+          OPENCLAW_NO_PROMPT: 1
         run: |
           set -euo pipefail
           # SECURITY: do not use secrets. CI runners are ephemeral.
-          curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard
+          curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard --no-prompt
 
       - name: Install (Windows)
         if: runner.os == 'Windows'
@@ -140,6 +146,22 @@ jobs:
             Write-Warning "Error: $($_.Exception.Message)"
           }
 
+      # ---------- Ensure app present for test (macOS): upstream install.sh does NOT install the app ----------
+      - name: Ensure OpenClaw.app present for removal test (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Upstream install.sh only installs CLI (npm global or git wrapper); it never installs /Applications/OpenClaw.app.
+          # So we create a stub when missing to exercise app-removal in our uninstall script.
+          if [ -d "/Applications/OpenClaw.app" ]; then
+            echo "OpenClaw.app already present"
+          else
+            echo "Creating stub /Applications/OpenClaw.app so we test app removal (upstream install.sh does not install the app)"
+            sudo mkdir -p /Applications/OpenClaw.app/Contents/MacOS
+            sudo touch /Applications/OpenClaw.app/Contents/MacOS/OpenClaw
+          fi
+
       # ---------- Post-install snapshot ----------
       - name: Post-install snapshot (macOS/Linux)
         if: runner.os != 'Windows'
@@ -151,6 +173,8 @@ jobs:
           echo "=== ps post (filtered) ===" >> artifacts/post_install.txt
           ps aux | grep -E -i "openclaw|molt|claw" >> artifacts/post_install.txt || true
           if [ "$(uname -s)" = "Darwin" ]; then
+            echo "=== /Applications/OpenClaw.app post ===" >> artifacts/post_install.txt
+            ls -la /Applications/OpenClaw.app 2>/dev/null >> artifacts/post_install.txt || echo "absent" >> artifacts/post_install.txt
             echo "=== launch agents post ===" >> artifacts/post_install.txt
             ls -la "$HOME/Library/LaunchAgents" >> artifacts/post_install.txt || true
             echo "=== launchctl list (filtered) ===" >> artifacts/post_install.txt
@@ -214,6 +238,10 @@ jobs:
           set -euo pipefail
           echo "=== openclaw dirs after uninstall ===" > artifacts/post_uninstall.txt
           ls -la "$HOME"/.openclaw* 2>/dev/null >> artifacts/post_uninstall.txt || echo "none" >> artifacts/post_uninstall.txt
+          if [ "$(uname -s)" = "Darwin" ]; then
+            echo "=== /Applications/OpenClaw.app after uninstall ===" >> artifacts/post_uninstall.txt
+            ls -la /Applications/OpenClaw.app 2>/dev/null >> artifacts/post_uninstall.txt || echo "absent" >> artifacts/post_uninstall.txt
+          fi
           echo "=== ps after uninstall (filtered) ===" >> artifacts/post_uninstall.txt
           ps aux | grep -E -i "openclaw|molt|claw" >> artifacts/post_uninstall.txt || echo "none" >> artifacts/post_uninstall.txt
           if [ "$(uname -s)" = "Darwin" ]; then
@@ -261,7 +289,20 @@ jobs:
             ls -la "$HOME"/.openclaw* 2>/dev/null || true
             exit 1
           fi
+          if command -v openclaw >/dev/null 2>&1; then
+            echo "FAIL: openclaw still in PATH: $(command -v openclaw)"
+            exit 1
+          fi
+          if [ -x "$HOME/.local/bin/openclaw" ]; then
+            echo "FAIL: git wrapper still present: $HOME/.local/bin/openclaw"
+            exit 1
+          fi
           if [ "$(uname -s)" = "Darwin" ]; then
+            if [ -d "/Applications/OpenClaw.app" ]; then
+              echo "FAIL: /Applications/OpenClaw.app still present"
+              ls -la /Applications/OpenClaw.app
+              exit 1
+            fi
             if launchctl list 2>/dev/null | grep -qE -i "openclaw|molt|claw"; then
               echo "FAIL: launchd still has OpenClaw entries"
               launchctl list | grep -E -i "openclaw|molt|claw" || true

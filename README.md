@@ -164,8 +164,9 @@ Scripts write **SIEM-friendly**, key=value logs so log shippers can parse them w
 | macOS / Linux | `/var/log/openclaw_removal.log` (fallback: `$HOME/.openclaw_removal.log` if unwritable) |
 | Windows | `C:\ProgramData\OpenClawRemoval.log` |
 
-- **Override:** Set `OPENCLAW_REMOVAL_LOG` (macOS/Linux) or `OPENCLAW_REMOVAL_LOG` (Windows) to a custom log path. On macOS/Linux, set `OPENCLAW_STATE_DIR` to also clean a custom OpenClaw state directory (in addition to default `~/.openclaw*`).
+- **Override:** Set `OPENCLAW_REMOVAL_LOG` (macOS/Linux) or `OPENCLAW_REMOVAL_LOG` (Windows) to a custom log path. On macOS/Linux, set `OPENCLAW_STATE_DIR` to also clean a custom OpenClaw state directory (in addition to default `~/.openclaw*`). Set `OPENCLAW_CONFIG_PATH` when OpenClaw was configured to use a config file/dir outside the state dir so the script removes it (per [uninstall docs](https://docs.openclaw.ai/install/uninstall)).
 - **Format:** One line per event: `ts=<UTC ISO8601> host=... user=... os=... os_version=... os_arch=... event=... action=... result=... script=openclaw_remediation version=... severity=info|warning|error`. Includes OS name/version/arch for enterprise fleet visibility. Values with spaces or `=` are double-quoted for SIEM parsing.
+- **Detection/removal detail:** In `action`, scripts log **kind** (state_dir, cli, app, service, etc.), **source** (npm, launchd, systemd, scheduled_task, etc.), **path**/label/unit, and **openclaw_version** when available. Each removal emits `event=removed` with `result=ok` and the same detail for audit. See [docs/siem.md](docs/siem.md).
 - **Outcome:** Final line includes `result=success`, `result=partial`, or `result=failure` (or `result=would_remove` for dry-run). Use `severity=error` or `result=partial|failure` for alerting.
 - **Log rotation:** Scripts do not rotate logs; rely on OS or SIEM log rotation for these paths.
 - **SIEM:** Add the paths above to your log collection (e.g. Splunk, Elastic, Sentinel, Datadog) and parse on `event` and `result` for dashboards and alerts.

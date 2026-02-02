@@ -23,6 +23,7 @@ If `/var/log` is not writable (e.g. non-root), the Unix script falls back to `$H
   ```
 
 - **Fields:** `ts` (UTC ISO8601), `host`, `user`, `os` (Darwin | Linux | Windows), `os_version` (e.g. macOS product version, Linux distro-VERSION_ID, Windows build), `os_arch` (e.g. x86_64, arm64, 64-bit), `event`, `action` (optional), `result` (on completion), `script=openclaw_remediation`, `version` (script version from repo `VERSION` file, or `unknown` when missing), `severity` (info | warning | error).
+- **Detection/removal detail:** In `action`, scripts log **kind** (what was found or removed: `state_dir`, `cli`, `app`, `service`, `config_path`, `install_path`, `cli_shim`), **source** when relevant (e.g. `npm`, `pnpm`, `bun`, `git_wrapper`, `launchd`, `systemd`, `scheduled_task`), **path** or **label**/ **unit**/ **task_name**, and **openclaw_version** when available (CLI version from `openclaw --version` or npm list; app version from macOS Info.plist). Use `event=removed` with `result=ok` to see exactly what was uninstalled.
 - **Outcome:** Last line has `result=success`, `result=partial`, or `result=failure` (or `result=would_remove` for dry-run). Use this for alerting.
 
 ## Example queries
