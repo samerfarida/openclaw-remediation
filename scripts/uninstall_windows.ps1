@@ -55,6 +55,44 @@ try {
   if ($tasks) { $WouldRemove = $true; Write-SiemLog -Event "dry_run" -Action "would_remove_scheduled_tasks" }
 } catch {}
 
+# Detect: global CLI (npm/pnpm/bun) and common Windows install paths (per docs/compatibility)
+$npmGlobal = $false
+try {
+  if (Get-Command npm -ErrorAction SilentlyContinue) {
+    $out = npm list -g openclaw --depth=0 2>$null
+    if ($out -match "openclaw@") { $npmGlobal = $true }
+  }
+} catch {}
+if (-not $npmGlobal -and (Test-Path -LiteralPath "$env:APPDATA\npm\openclaw.cmd" -ErrorAction SilentlyContinue)) { $npmGlobal = $true }
+if ($npmGlobal) { $WouldRemove = $true; Write-SiemLog -Event "detect" -Action "cli_npm_global" }
+
+try {
+  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
+    $out = pnpm list -g openclaw 2>$null
+    if ($out -match "openclaw") { $WouldRemove = $true; Write-SiemLog -Event "detect" -Action "cli_pnpm_global" }
+  }
+} catch {}
+try {
+  if (Get-Command bun -ErrorAction SilentlyContinue) {
+    $out = bun pm ls -g 2>$null
+    if ($out -match "openclaw") { $WouldRemove = $true; Write-SiemLog -Event "detect" -Action "cli_bun_global" }
+  }
+} catch {}
+
+# Detect: common Windows install dirs (standalone or installer layout)
+$localPaths = @(
+  (Join-Path $env:LOCALAPPDATA "openclaw"),
+  (Join-Path $env:LOCALAPPDATA "OpenClaw"),
+  (Join-Path $env:LOCALAPPDATA "Programs\openclaw"),
+  (Join-Path $env:LOCALAPPDATA "Programs\OpenClaw")
+)
+foreach ($p in $localPaths) {
+  if (Test-Path -LiteralPath $p -ErrorAction SilentlyContinue) {
+    $WouldRemove = $true
+    Write-SiemLog -Event "detect" -Action "install_path=$p"
+  }
+}
+
 if ($DryRun) {
   [Console]::Error.WriteLine("openclaw-remediation: dry-run (detect only), no removal")
   $dryResult = if ($WouldRemove) { "would_remove" } else { "clean" }
@@ -100,6 +138,43 @@ Get-ChildItem -Path $userHome -Filter ".openclaw*" -Force -ErrorAction SilentlyC
     Write-SiemLog -Event "remove_state" -Action "path=$($_.FullName)"
     Remove-Item -Recurse -Force $_.FullName
   }
+
+# Remove global CLI (npm/pnpm/bun) per docs/compatibility
+try {
+  if (Get-Command npm -ErrorAction SilentlyContinue) {
+    Write-SiemLog -Event "cli_remove" -Action "npm_uninstall_global"
+    npm uninstall -g openclaw 2>$null | Out-Null
+  }
+} catch {}
+try {
+  if (Get-Command pnpm -ErrorAction SilentlyContinue) {
+    Write-SiemLog -Event "cli_remove" -Action "pnpm_remove_global"
+    pnpm remove -g openclaw 2>$null | Out-Null
+  }
+} catch {}
+try {
+  if (Get-Command bun -ErrorAction SilentlyContinue) {
+    Write-SiemLog -Event "cli_remove" -Action "bun_remove_global"
+    bun remove -g openclaw 2>$null | Out-Null
+  }
+} catch {}
+# Best-effort: remove CLI shims from %APPDATA%\npm if still present
+$npmBin = Join-Path $env:APPDATA "npm"
+foreach ($name in @("openclaw.cmd", "openclaw", "openclaw.ps1")) {
+  $fp = Join-Path $npmBin $name
+  if (Test-Path -LiteralPath $fp -ErrorAction SilentlyContinue) {
+    Write-SiemLog -Event "manual" -Action "remove_npm_shim=$fp"
+    Remove-Item -Force $fp -ErrorAction SilentlyContinue
+  }
+}
+
+# Remove common Windows install dirs (standalone layout)
+foreach ($p in $localPaths) {
+  if (Test-Path -LiteralPath $p -ErrorAction SilentlyContinue) {
+    Write-SiemLog -Event "remove_state" -Action "path=$p"
+    Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue
+  }
+}
 
 $sev = if ($Result -eq "success") { "info" } elseif ($Result -eq "partial") { "warning" } else { "error" }
 Write-SiemLog -Event "complete" -Result $Result -Severity $sev

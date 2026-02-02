@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Windows:** Detection and removal of global CLI (npm/pnpm/bun) and common install paths (`%LOCALAPPDATA%\openclaw`, `OpenClaw`, `Programs\openclaw`, `Programs\OpenClaw`); npm shims (`openclaw.cmd`, `openclaw`, `openclaw.ps1`) in `%APPDATA%\npm` removed when present. Prevents “already clean” when only the CLI was installed (e.g. CI with `OPENCLAW_NO_ONBOARD=1`).
 - CI artifacts README and uninstall script log (`uninstall_script.log`) now uploaded with test evidence.
 - **SIEM:** `script=openclaw_remediation`, `version` (from repo `VERSION` file), `severity` (info|warning|error), and quoted values for paths so Splunk/enterprise SIEMs parse reliably.
 - **Release workflow:** Tag push (`v*`) now creates a GitHub Release and attaches `checksums.txt`, `VERSION`, and scripts (not just workflow artifact).
@@ -15,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **FAQ** ([docs/faq.md](docs/faq.md)): “What if OpenClaw isn’t installed?”, “Why exit 1?”, “Why exit 2?”, “Script seemed to hang”, “Which version ran?”, “All users?”, log paths, log rotation.
 - **logrotate example** in [docs/siem.md](docs/siem.md) for `/var/log/openclaw_removal.log`.
 ### Changed
+- **CI (Windows):** Assert clean now also fails if `openclaw` remains in PATH, npm global `openclaw` is installed, npm shim exists in `%APPDATA%\npm`, or any LocalAppData OpenClaw path exists. Post-uninstall verification artifacts now include openclaw-in-PATH and `npm list -g openclaw` for debugging.
 - **Scripts:** “Already clean” early exit so we skip uninstall/npx when no OpenClaw artifacts are present; stderr progress so interactive runs don’t appear to hang.
 - CI badge and docs: replaced YOUR_ORG with samerfarida; updated README badges and logging/exit-code docs.
 
