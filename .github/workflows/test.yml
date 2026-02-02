@@ -237,7 +237,7 @@ jobs:
           if ($dirs) { $dirs | Format-List | Out-File artifacts\post_uninstall.txt -Append } else { "none" | Out-File artifacts\post_uninstall.txt -Append }
           "=== scheduled tasks after uninstall (filtered) ===" | Out-File artifacts\post_uninstall.txt -Append
           try {
-            $m = schtasks /Query /FO LIST /V | Select-String -Pattern "OpenClaw|molt|claw"
+            $m = schtasks /Query /FO LIST /V 2>$null | Select-String -Pattern "OpenClaw|molt|claw"
             if ($m) { $m | Out-File artifacts\post_uninstall.txt -Append } else { "none" | Out-File artifacts\post_uninstall.txt -Append }
           } catch { "query failed" | Out-File artifacts\post_uninstall.txt -Append }
           "=== openclaw in PATH after uninstall ===" | Out-File artifacts\post_uninstall.txt -Append
@@ -248,6 +248,7 @@ jobs:
           "=== processes after uninstall (filtered) ===" | Out-File artifacts\post_uninstall.txt -Append
           $p = Get-Process | Where-Object { $_.Name -match "openclaw|molt|claw" }
           if ($p) { $p | Format-Table | Out-File artifacts\post_uninstall.txt -Append } else { "none" | Out-File artifacts\post_uninstall.txt -Append }
+          exit 0
 
       # ---------- Assert clean (fail if artifacts remain) ----------
       - name: Assert clean (macOS/Linux)
@@ -319,6 +320,7 @@ jobs:
               exit 1
             }
           }
+          $LASTEXITCODE = 0
           Write-Host "PASS: endpoint clean"
 
       # ---------- Gather scripts log and index for artifacts ----------

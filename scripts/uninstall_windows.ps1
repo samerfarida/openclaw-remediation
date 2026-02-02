@@ -109,10 +109,13 @@ if (-not $WouldRemove) {
 }
 
 # Remove Scheduled Task (doc: "OpenClaw Gateway" and "OpenClaw Gateway (<profile>)")
+# Redirect stderr so "The system cannot find the file specified" doesn't appear when task is missing
 try {
-  schtasks /Query /TN "OpenClaw Gateway" *> $null
-  Write-SiemLog -Event "manual" -Action "task_delete=OpenClaw Gateway"
-  schtasks /Delete /F /TN "OpenClaw Gateway" | Out-Null
+  $null = schtasks /Query /TN "OpenClaw Gateway" 2>&1
+  if ($LASTEXITCODE -eq 0) {
+    Write-SiemLog -Event "manual" -Action "task_delete=OpenClaw Gateway"
+    schtasks /Delete /F /TN "OpenClaw Gateway" 2>$null | Out-Null
+  }
 } catch {}
 
 # Best-effort: delete any task whose name contains "OpenClaw Gateway" (root or profile variants)
@@ -122,7 +125,7 @@ try {
     $tn = $m.Matches[0].Groups[1].Value.Trim()
     if ($tn -match "OpenClaw Gateway") {
       Write-SiemLog -Event "manual" -Action "task_delete=$tn"
-      schtasks /Delete /F /TN $tn | Out-Null
+      schtasks /Delete /F /TN $tn 2>$null | Out-Null
     }
   }
 } catch {}
