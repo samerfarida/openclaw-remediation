@@ -128,11 +128,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Official Windows installer; may prompt if non-interactive flags not supported upstream
+          # Official Windows installer one-liner (same as openclaw.ai docs); may prompt if non-interactive flags not supported upstream
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           try {
-            $script = Invoke-WebRequest -Uri "https://openclaw.ai/install.ps1" -UseBasicParsing -ErrorAction Stop
-            Invoke-Expression $script.Content
+            iwr -useb https://openclaw.ai/install.ps1 | iex
           } catch {
             Write-Warning "Windows install failed or not available; uninstall step will still run (no install to remove)."
             Write-Warning "Error: $($_.Exception.Message)"
