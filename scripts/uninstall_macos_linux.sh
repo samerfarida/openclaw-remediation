@@ -223,11 +223,6 @@ fi
 OS="$(uname -s)"
 
 if [[ "$OS" = "Darwin" ]]; then
-  log "manual" "remove kind=service source=launchd label=bot.molt.gateway" ""
-  launchctl bootout "gui/$(id -u "$USER_NAME")/bot.molt.gateway" >>"$LOG_FILE" 2>&1 || true
-  rm -f "$HOME_DIR/Library/LaunchAgents/bot.molt.gateway.plist" 2>>"$LOG_FILE" || true
-  log "removed" "kind=service source=launchd label=bot.molt.gateway" "ok" ""
-
   for plist in "$HOME_DIR"/Library/LaunchAgents/bot.molt.*.plist; do
     [[ -e "$plist" ]] || continue
     label="$(basename "$plist" .plist)"
@@ -256,11 +251,13 @@ if [[ "$OS" = "Darwin" ]]; then
 
 else
   if command -v systemctl >/dev/null 2>&1; then
-    log "manual" "remove kind=service source=systemd unit=openclaw-gateway.service" ""
-    # shellcheck disable=SC2024
-    sudo -u "$USER_NAME" systemctl --user disable --now openclaw-gateway.service >>"$LOG_FILE" 2>&1 || true
-    rm -f "$HOME_DIR/.config/systemd/user/openclaw-gateway.service" 2>>"$LOG_FILE" || true
-    log "removed" "kind=service source=systemd unit=openclaw-gateway.service" "ok" ""
+    if [[ -e "$HOME_DIR/.config/systemd/user/openclaw-gateway.service" ]]; then
+      log "manual" "remove kind=service source=systemd unit=openclaw-gateway.service" ""
+      # shellcheck disable=SC2024
+      sudo -u "$USER_NAME" systemctl --user disable --now openclaw-gateway.service >>"$LOG_FILE" 2>&1 || true
+      rm -f "$HOME_DIR/.config/systemd/user/openclaw-gateway.service" 2>>"$LOG_FILE" || true
+      log "removed" "kind=service source=systemd unit=openclaw-gateway.service" "ok" ""
+    fi
 
     for unit in "$HOME_DIR"/.config/systemd/user/openclaw-gateway-*.service; do
       [[ -e "$unit" ]] || continue
