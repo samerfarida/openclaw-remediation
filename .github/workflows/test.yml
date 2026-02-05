@@ -2,9 +2,18 @@ name: openclaw-install-uninstall-test
 
 on:
   workflow_dispatch:
+  # Daily run to catch upstream OpenClaw installer/code changes
+  schedule:
+    - cron: '0 0 * * *'
   pull_request:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/test.yml'
   push:
     branches: [ "main" ]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/test.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
